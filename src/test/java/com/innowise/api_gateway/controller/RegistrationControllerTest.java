@@ -38,11 +38,11 @@ class RegistrationControllerTest {
 
     private GatewayRegisterRequest validRequest() {
         return GatewayRegisterRequest.builder()
-                .login("john")
+                .login("alice")
                 .password("secret")
-                .name("John")
-                .surname("Doe")
-                .email("john@example.com")
+                .name("Alice")
+                .surname("Rossi")
+                .email("alice.rossi@example.com")
                 .birthDate(LocalDate.of(1990, 1, 1))
                 .build();
     }
@@ -58,7 +58,7 @@ class RegistrationControllerTest {
         when(orchestrator.register(any(GatewayRegisterRequest.class)))
                 .thenReturn(Mono.just(authResponse));
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validRequest())
                 .exchange()
@@ -74,7 +74,7 @@ class RegistrationControllerTest {
         GatewayRegisterRequest request = validRequest();
         request.setLogin("");
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
@@ -86,7 +86,7 @@ class RegistrationControllerTest {
         GatewayRegisterRequest request = validRequest();
         request.setPassword("");
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
@@ -98,7 +98,7 @@ class RegistrationControllerTest {
         GatewayRegisterRequest request = validRequest();
         request.setEmail("not-an-email");
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
@@ -110,7 +110,7 @@ class RegistrationControllerTest {
         GatewayRegisterRequest request = validRequest();
         request.setName("");
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(request)
                 .exchange()
@@ -124,7 +124,7 @@ class RegistrationControllerTest {
                 .thenReturn(Mono.error(
                         new RegistrationException("Email exists", HttpStatus.CONFLICT)));
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validRequest())
                 .exchange()
@@ -140,7 +140,7 @@ class RegistrationControllerTest {
                         new RegistrationException("Auth failed",
                                 HttpStatus.INTERNAL_SERVER_ERROR)));
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validRequest())
                 .exchange()
@@ -154,7 +154,7 @@ class RegistrationControllerTest {
                         new RegistrationException("Down",
                                 HttpStatus.SERVICE_UNAVAILABLE)));
 
-        webTestClient.post().uri("/api/auth/register")
+        webTestClient.post().uri("/api/authentications/register")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(validRequest())
                 .exchange()

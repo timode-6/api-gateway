@@ -5,6 +5,7 @@ import com.innowise.api_gateway.dto.GatewayRegisterRequest;
 import com.innowise.api_gateway.dto.RegisterRequest;
 import com.innowise.api_gateway.dto.UserDTO;
 import com.innowise.api_gateway.exception.RegistrationException;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
+
+import java.time.Duration;
 
 @Slf4j
 @Service
@@ -20,6 +24,9 @@ public class RegistrationOrchestrator {
     private final WebClient webClient;
     private final String userServiceUrl;
     private final String authServiceUrl;
+
+    private static final int ROLLBACK_MAX_ATTEMPTS = 3;
+    private static final Duration ROLLBACK_RETRY_BACKOFF = Duration.ofSeconds(2);
 
     public RegistrationOrchestrator(
             WebClient webClient,
@@ -78,7 +85,7 @@ public class RegistrationOrchestrator {
                 .build();
 
         return webClient.post()
-                .uri(authServiceUrl + "/api/auth/register")
+                .uri(authServiceUrl + "/api/authentications/register")
                 .bodyValue(registerRequest)
                 .retrieve()
                 .bodyToMono(AuthResponse.class)
@@ -91,11 +98,19 @@ public class RegistrationOrchestrator {
                 .retrieve()
                 .bodyToMono(Void.class)
                 .doOnSuccess(v -> log.info("Rollback successful — deleted userId={}", userId))
+                .retryWhen(Retry.backoff(ROLLBACK_MAX_ATTEMPTS, ROLLBACK_RETRY_BACKOFF)
+                        .filter(this::isRetryable)
+                        .doBeforeRetry(signal -> log.warn(
+                                "Rollback attempt {} failed for userId={}, retrying. Cause: {}",
+                                signal.totalRetries() + 1,
+                                userId,
+                                signal.failure().getMessage()))
+                        .onRetryExhaustedThrow((spec, signal) -> signal.failure()))
                 .onErrorResume(ex -> {
-                    log.error("Rollback FAILED for userId={}: {}", userId, ex.getMessage());
-                    return Mono.empty(); 
+                        publishRollbackAlert(userId, ex);
+                        return Mono.empty();
                 });
-    }
+        }
 
     private RegistrationException toRegistrationException(Throwable ex, String fallbackMessage) {
         if (ex instanceof WebClientResponseException wcEx) {
@@ -103,8 +118,31 @@ public class RegistrationOrchestrator {
                     HttpStatus.valueOf(wcEx.getStatusCode().value()));
         }
         if (ex instanceof RegistrationException re) {
-            return re;
+                return re;
         }
+        
         return new RegistrationException(fallbackMessage, HttpStatus.INTERNAL_SERVER_ERROR);
-    }
+   }
+
+        private boolean isRetryable(Throwable ex) {
+                if (ex instanceof WebClientResponseException wcEx) {
+                        return wcEx.getStatusCode().is5xxServerError();
+                }
+                return ex instanceof java.io.IOException
+                        || ex instanceof reactor.netty.http.client.PrematureCloseException;
+        }
+
+        private void publishRollbackAlert(Long userId, Throwable ex) {
+                log.error("""
+                        [ROLLBACK_FAILED] MANUAL INTERVENTION REQUIRED
+                        Orphaned user record detected.
+                        userId    : {}
+                        reason    : {}
+                        action    : DELETE /api/users/{} must be executed manually
+                        """,
+                        userId,
+                        ex.getMessage(),
+                        userId);
+        }
+                
 }

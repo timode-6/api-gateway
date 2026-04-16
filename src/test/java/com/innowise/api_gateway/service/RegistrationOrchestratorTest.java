@@ -14,6 +14,7 @@ import reactor.test.StepVerifier;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.Duration;
 
 class RegistrationOrchestratorTest {
 
@@ -39,11 +40,11 @@ class RegistrationOrchestratorTest {
 
     private GatewayRegisterRequest sampleRequest() {
         return GatewayRegisterRequest.builder()
-                .login("john")
+                .login("alice")
                 .password("secret")
-                .name("John")
-                .surname("Doe")
-                .email("john@example.com")
+                .name("Alice")
+                .surname("Rossi")
+                .email("alice.rossi@example.com")
                 .birthDate(LocalDate.of(1990, 1, 1))
                 .build();
     }
@@ -55,8 +56,8 @@ class RegistrationOrchestratorTest {
                 .setResponseCode(201)
                 .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .setBody("""
-                        {"id":10,"name":"John","surname":"Doe",
-                         "email":"john@example.com","active":true}
+                        {"id":10,"name":"Alice","surname":"Rossi",
+                         "email":"alice.rossi@example.com","active":true}
                         """));
 
         mockWebServer.enqueue(new MockResponse()
@@ -94,8 +95,8 @@ class RegistrationOrchestratorTest {
                 .setResponseCode(201)
                 .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .setBody("""
-                        {"id":10,"name":"John","surname":"Doe",
-                         "email":"john@example.com","active":true}
+                        {"id":10,"name":"Alice","surname":"Rossi",
+                         "email":"alice.rossi@example.com","active":true}
                         """));
 
         mockWebServer.enqueue(new MockResponse()
@@ -119,23 +120,23 @@ class RegistrationOrchestratorTest {
         org.assertj.core.api.Assertions.assertThat(rollbackRequest.getPath())
                 .isEqualTo("/api/users/10");
     }
-
-    @Test
-    void register_AuthFailsAndRollbackAlsoFails_ShouldStillReturnRegistrationException() {
-        mockWebServer.enqueue(new MockResponse()
-                .setResponseCode(201)
+        @Test
+        void register_AuthFailsAndRollbackAlsoFails_ShouldStillReturnRegistrationException() {
+        mockWebServer.enqueue(new MockResponse().setResponseCode(201)
                 .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .setBody("""
-                        {"id":10,"name":"John","surname":"Doe",
-                         "email":"john@example.com","active":true}
-                        """));
+                                {"id":10,"name":"Alice","surname":"Rossi",
+                                "email":"alice.rossi@example.com","active":true}
+                                """));
 
+        mockWebServer.enqueue(new MockResponse().setResponseCode(500)); 
         mockWebServer.enqueue(new MockResponse().setResponseCode(500));
-
+        mockWebServer.enqueue(new MockResponse().setResponseCode(500));
+        mockWebServer.enqueue(new MockResponse().setResponseCode(500));
         mockWebServer.enqueue(new MockResponse().setResponseCode(500));
 
         StepVerifier.create(orchestrator.register(sampleRequest()))
                 .expectErrorMatches(RegistrationException.class::isInstance)
-                .verify();
-    }
+                .verify(Duration.ofSeconds(20));
+        }
 }

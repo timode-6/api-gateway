@@ -16,7 +16,7 @@ import reactor.core.publisher.Mono;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/api/authentications")
 @RequiredArgsConstructor
 public class RegistrationController {
 
@@ -25,7 +25,7 @@ public class RegistrationController {
     @PostMapping("/register")
     public Mono<ResponseEntity<AuthResponse>> register(
             @Valid @RequestBody GatewayRegisterRequest request) {
-        log.info("POST /api/auth/register login={}", request.getLogin());
+        log.info("POST /api/authentications/register login={}", request.getLogin());
         return orchestrator.register(request)
                 .map(response -> ResponseEntity.status(HttpStatus.CREATED).body(response));
     }

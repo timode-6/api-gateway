@@ -41,54 +41,54 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-        String path = exchange.getRequest().getURI().getPath();
+    String path = exchange.getRequest().getURI().getPath();
 
-        if (isPublicPath(path)) {
-            return chain.filter(exchange);
-        }
-
-        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
-
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("Missing or invalid Authorization header for path: {}", path);
-            return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                    "Authentication required");
-        }
-
-        String token = authHeader.substring(7);
-
-        return tokenBlacklistService.isBlacklisted(token)
-                .flatMap(blacklisted -> {
-                    if (Boolean.TRUE.equals(blacklisted)) {
-                        log.warn("Blacklisted token used for path: {}", path);
-                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                                "Token has been invalidated");
-                    }
-
-                    if (!jwtService.validateToken(token)) {
-                        log.warn("Invalid or expired token for path: {}", path);
-                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                                "Invalid or expired token");
-                    }
-
-                    String tokenType = jwtService.extractTokenType(token);
-                    if (!"ACCESS".equals(tokenType)) {
-                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                                "Only access tokens are accepted");
-                    }
-
-                    Long userId = jwtService.extractUserId(token);
-                    String role = jwtService.extractRole(token);
-
-                    ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                            .header("X-User-Id", userId.toString())
-                            .header("X-User-Role", role)
-                            .build();
-
-                    log.debug("Authenticated request: userId={} role={} path={}", userId, role, path);
-                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
-                });
+    if (isPublicPath(path)) {
+        return chain.filter(exchange);
     }
+
+    String token = extractBearerToken(exchange.getRequest());
+
+    if (token == null) {
+        log.warn("Missing, malformed, or blank Authorization header for path: {}", path);
+        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                "Authentication required");
+    }
+
+    return tokenBlacklistService.isBlacklisted(token)
+            .flatMap(blacklisted -> {
+                if (Boolean.TRUE.equals(blacklisted)) {
+                    log.warn("Blacklisted token used for path: {}", path);
+                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                            "Token has been invalidated");
+                }
+
+                if (!jwtService.validateToken(token)) {
+                    log.warn("Invalid or expired token for path: {}", path);
+                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                            "Invalid or expired token");
+                }
+
+                String tokenType = jwtService.extractTokenType(token);
+                if (!"ACCESS".equals(tokenType)) {
+                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                            "Only access tokens are accepted");
+                }
+
+                Long userId = jwtService.extractUserId(token);
+                String role = jwtService.extractRole(token);
+
+                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                        .header("X-User-Id", userId.toString())
+                        .header("X-User-Role", role)
+                        .build();
+
+                log.debug("Authenticated request: userId={} role={} path={}", userId, role, path);
+                return chain.filter(exchange.mutate().request(mutatedRequest).build());
+            });
+    }
+
+    
 
     private boolean isPublicPath(String path) {
         return publicPaths.stream().anyMatch(path::startsWith);
@@ -111,8 +111,18 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             byte[] bytes = objectMapper.writeValueAsBytes(body);
             DataBuffer buffer = response.bufferFactory().wrap(bytes);
             return response.writeWith(Mono.just(buffer));
-        } catch (Exception e) {
-            return response.setComplete();
+        } catch (Exception e) {return response.setComplete();
         }
+    }
+
+    private String extractBearerToken(ServerHttpRequest request) {
+        String authHeader = request.getHeaders().getFirst("Authorization");
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return null;
+        }
+
+        String token = authHeader.substring(7).strip();
+        return token.isEmpty() ? null : token;
     }
 }
