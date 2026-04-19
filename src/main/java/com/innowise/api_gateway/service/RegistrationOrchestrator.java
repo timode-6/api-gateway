@@ -1,5 +1,7 @@
 package com.innowise.api_gateway.service;
 
+import com.innowise.api_gateway.deadletter.RedisDeadLetterQueue;
+import com.innowise.api_gateway.deadletter.RollbackFailedEvent;
 import com.innowise.api_gateway.dto.AuthResponse;
 import com.innowise.api_gateway.dto.GatewayRegisterRequest;
 import com.innowise.api_gateway.dto.RegisterRequest;
@@ -16,6 +18,7 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.time.Instant;
 
 @Slf4j
 @Service
@@ -24,6 +27,7 @@ public class RegistrationOrchestrator {
     private final WebClient webClient;
     private final String userServiceUrl;
     private final String authServiceUrl;
+    private final RedisDeadLetterQueue deadLetterQueue;
 
     private static final int ROLLBACK_MAX_ATTEMPTS = 3;
     private static final Duration ROLLBACK_RETRY_BACKOFF = Duration.ofSeconds(2);
@@ -31,10 +35,12 @@ public class RegistrationOrchestrator {
     public RegistrationOrchestrator(
             WebClient webClient,
             @Value("${services.user.url}") String userServiceUrl,
-            @Value("${services.auth.url}") String authServiceUrl) {
+            @Value("${services.auth.url}") String authServiceUrl,
+            RedisDeadLetterQueue deadLetterQueue) {
         this.webClient = webClient;
         this.userServiceUrl = userServiceUrl;
         this.authServiceUrl = authServiceUrl;
+        this.deadLetterQueue = deadLetterQueue;
     }
 
     public Mono<AuthResponse> register(GatewayRegisterRequest request) {
@@ -85,7 +91,7 @@ public class RegistrationOrchestrator {
                 .build();
 
         return webClient.post()
-                .uri(authServiceUrl + "/api/authentications/register")
+                .uri(authServiceUrl + "/api/auth/registration")
                 .bodyValue(registerRequest)
                 .retrieve()
                 .bodyToMono(AuthResponse.class)
@@ -143,6 +149,21 @@ public class RegistrationOrchestrator {
                         userId,
                         ex.getMessage(),
                         userId);
+
+                RollbackFailedEvent event = RollbackFailedEvent.builder()
+                        .userId(userId)
+                        .reason(ex.getMessage())
+                        .requiredAction("DELETE /api/users/" + userId)
+                        .timestamp(Instant.now().toString())
+                        .rollbackAttempts(ROLLBACK_MAX_ATTEMPTS)
+                        .build();
+                        
+                deadLetterQueue.publish(event)
+                .subscribe(
+                null,
+                dlqEx -> log.error("[DLQ] Publish failed for userId={}. MANUAL ACTION REQUIRED. reason={}",
+                        userId, dlqEx.getMessage())
+            );
         }
                 
 }

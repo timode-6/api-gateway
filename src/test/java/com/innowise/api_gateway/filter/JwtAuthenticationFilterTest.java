@@ -38,10 +38,10 @@ class JwtAuthenticationFilterTest {
     private JwtAuthenticationFilter filter;
 
     private static final List<String> PUBLIC_PATHS = List.of(
-            "/api/authentications/register",
-            "/api/authentications/token",
-            "/api/authentications/token/refresh",
-            "/api/authentications/token/validate"
+            "/api/auth/registration",
+            "/api/auth/token",
+            "/api/auth/token/current",
+            "/api/auth/token/validatation"
     );
 
     @BeforeEach
@@ -55,7 +55,7 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void publicPath_Register_ShouldPassWithoutTokenCheck() {
-        MockServerWebExchange exchange = exchange("/api/authentications/register", null);
+        MockServerWebExchange exchange = exchange("/api/auth/registration", null);
 
         StepVerifier.create(filter.filter(exchange, filterChain))
                 .verifyComplete();
@@ -66,7 +66,7 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void publicPath_Token_ShouldPassWithoutTokenCheck() {
-        MockServerWebExchange exchange = exchange("/api/authentications/token", null);
+        MockServerWebExchange exchange = exchange("/api/auth/token", null);
 
         StepVerifier.create(filter.filter(exchange, filterChain))
                 .verifyComplete();
@@ -76,7 +76,7 @@ class JwtAuthenticationFilterTest {
 
     @Test
     void publicPath_TokenRefresh_ShouldPassWithoutTokenCheck() {
-        MockServerWebExchange exchange = exchange("/api/authentications/token/refresh", null);
+        MockServerWebExchange exchange = exchange("/api/auth/token/current", null);
 
         StepVerifier.create(filter.filter(exchange, filterChain))
                 .verifyComplete();

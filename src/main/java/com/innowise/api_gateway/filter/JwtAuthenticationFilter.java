@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -30,7 +31,11 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
     private final JwtService jwtService;
     private final TokenBlacklistService tokenBlacklistService;
     private final ObjectMapper objectMapper;
+    private final AntPathMatcher pathMatcher = new AntPathMatcher();
 
+    @Value("${gateway.internal-secret}")
+    private String internalSecret;
+    
     @Value("${gateway.public-paths}")
     private List<String> publicPaths;
 
@@ -41,57 +46,58 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
-    String path = exchange.getRequest().getURI().getPath();
+        String path = exchange.getRequest().getURI().getPath();
 
-    if (isPublicPath(path)) {
-        return chain.filter(exchange);
-    }
+        if (isPublicPath(path)) {
+            return chain.filter(exchange);
+        }
 
-    String token = extractBearerToken(exchange.getRequest());
+        String token = extractBearerToken(exchange.getRequest());
 
-    if (token == null) {
-        log.warn("Missing, malformed, or blank Authorization header for path: {}", path);
-        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                "Authentication required");
-    }
+        if (token == null) {
+            log.warn("Missing, malformed, or blank Authorization header for path: {}", path);
+            return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                    "Authentication required");
+        }
 
-    return tokenBlacklistService.isBlacklisted(token)
-            .flatMap(blacklisted -> {
-                if (Boolean.TRUE.equals(blacklisted)) {
-                    log.warn("Blacklisted token used for path: {}", path);
-                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                            "Token has been invalidated");
-                }
+        return tokenBlacklistService.isBlacklisted(token)
+                .flatMap(blacklisted -> {
+                    if (Boolean.TRUE.equals(blacklisted)) {
+                        log.warn("Blacklisted token used for path: {}", path);
+                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                                "Token has been invalidated");
+                    }
 
-                if (!jwtService.validateToken(token)) {
-                    log.warn("Invalid or expired token for path: {}", path);
-                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                            "Invalid or expired token");
-                }
+                    if (!jwtService.validateToken(token)) {
+                        log.warn("Invalid or expired token for path: {}", path);
+                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                                "Invalid or expired token");
+                    }
 
-                String tokenType = jwtService.extractTokenType(token);
-                if (!"ACCESS".equals(tokenType)) {
-                    return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
-                            "Only access tokens are accepted");
-                }
+                    String tokenType = jwtService.extractTokenType(token);
+                    if (!"ACCESS".equals(tokenType)) {
+                        return writeErrorResponse(exchange, HttpStatus.UNAUTHORIZED,
+                                "Only access tokens are accepted");
+                    }
 
-                Long userId = jwtService.extractUserId(token);
-                String role = jwtService.extractRole(token);
+                    Long userId = jwtService.extractUserId(token);
+                    String role = jwtService.extractRole(token);
 
-                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
-                        .header("X-User-Id", userId.toString())
-                        .header("X-User-Role", role)
-                        .build();
+                    ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                            .header("X-User-Id", userId.toString())
+                            .header("X-User-Role", role)
+                            .header("X-Internal-Secret", internalSecret)
+                            .build();
 
-                log.debug("Authenticated request: userId={} role={} path={}", userId, role, path);
-                return chain.filter(exchange.mutate().request(mutatedRequest).build());
-            });
+                    log.debug("Authenticated request: userId={} role={} path={}", userId, role, path);
+                    return chain.filter(exchange.mutate().request(mutatedRequest).build());
+                });
     }
 
     
 
     private boolean isPublicPath(String path) {
-        return publicPaths.stream().anyMatch(path::startsWith);
+        return publicPaths.stream().anyMatch(p -> pathMatcher.match(p, path));
     }
 
     private Mono<Void> writeErrorResponse(ServerWebExchange exchange,
@@ -111,7 +117,8 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
             byte[] bytes = objectMapper.writeValueAsBytes(body);
             DataBuffer buffer = response.bufferFactory().wrap(bytes);
             return response.writeWith(Mono.just(buffer));
-        } catch (Exception e) {return response.setComplete();
+        } catch (Exception e) {
+            return response.setComplete();
         }
     }
 
