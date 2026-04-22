@@ -1,4 +1,4 @@
-package com.example.api_gateway;
+package com.innowise.api_gateway;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -7,7 +7,5 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class ApiGatewayApplication {
 
 	public static void main(String[] args) {
-		SpringApplication.run(ApiGatewayApplication.class, args);
-	}
-
+		SpringApplication.run(ApiGatewayApplication.class, args);}
 }

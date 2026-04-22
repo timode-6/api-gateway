@@ -1,0 +1,118 @@
+services:
+  postgres:
+    image: postgres:12-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres          
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  auth-service:
+    build:
+      context: ../auth-service/.
+    container_name: auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/auth_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_LIQUIBASE_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  user-service:
+    build:
+      context: ../user-service/.
+    container_name: user-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/users
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_LIQUIBASE_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  order-service:
+    build:
+      context: ../order-service/.
+    container_name: order-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      SPRING_LIQUIBASE_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  gateway-service:
+    build:
+      context: ../api-gateway/.
+    container_name: gateway-service
+    ports:
+      - "8080:8080"
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8081
+      USER_SERVICE_URL: http://user-service:8082
+      ORDER_SERVICE_URL: http://order-service:8083
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+
+networks:
+  backend:
+    driver: bridge
